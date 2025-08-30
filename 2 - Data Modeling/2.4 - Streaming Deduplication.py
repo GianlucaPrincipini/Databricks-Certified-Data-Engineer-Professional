@@ -36,12 +36,23 @@ print(batch_total)
 
 # COMMAND ----------
 
+# Il watermark qui è fondamentale per la gestione della dropDuplicates su stream.
+# Senza watermark Spark dovrebbe mantenere in memoria tutti gli identificativi già visti (order_id, order_timestamp)
+# per poter eliminare i duplicati in arrivo in qualunque momento, causando un uso illimitato di memoria.
+#
+# Con il watermark impostato a 30 secondi su "order_timestamp":
+# - Spark mantiene in memoria solo i valori necessari a deduplicare gli eventi entro quella finestra di ritardo.
+# - Dopo che un evento è più vecchio di 30s rispetto al massimo timestamp visto, Spark può "dimenticarlo"
+#   e quindi non potrà più eliminare eventuali duplicati tardivi con lo stesso id/timestamp.
+#
+# In sintesi: la deduplica funziona solo entro il ritardo consentito dal watermark,
+# evitando di accumulare stato infinito e bilanciando efficienza e accuratezza.
 deduped_df = (spark.readStream
                    .table("bronze")
                    .filter("topic = 'orders'")
                    .select(F.from_json(F.col("value").cast("string"), json_schema).alias("v"))
                    .select("v.*")
-                   .withWatermark("order_timestamp", "30 seconds")
+                   .withWatermark("order_timestamp", "30 seconds")  
                    .dropDuplicates(["order_id", "order_timestamp"]))
 
 # COMMAND ----------
